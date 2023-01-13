@@ -1,7 +1,7 @@
-import { DocumentSnapshot, QueryDocumentSnapshot, SnapshotOptions} from "firebase/firestore";
+import { DocumentData, DocumentSnapshot, QueryDocumentSnapshot, SnapshotOptions} from "firebase/firestore";
 import { DocumentRules } from "./document_rules";
 import { BaseDocumentError } from "./document_error"
-import { DateObject, toTimestamp } from "./helpers";
+import { DateObject, toDateValue, toTimestamp } from "./helpers";
 
 export interface BaseDocumentAttributes {
     createdOn?: DateObject
@@ -9,14 +9,11 @@ export interface BaseDocumentAttributes {
     id?: string,
 }
 
-export class Base_Document<A extends BaseDocumentAttributes> {
+export class DocumentBase<A extends BaseDocumentAttributes> {
     static create<A extends BaseDocumentAttributes>(attributes?: A){
         return new this({...attributes, createdOn: "now", updatedOn: "now"} )
     }
-    static fromFirestore<A extends BaseDocumentAttributes>(snapshot:QueryDocumentSnapshot | DocumentSnapshot, options: SnapshotOptions){
-        const data = snapshot.data(options) as A 
-        return new this(data)
-    }
+
     constructor(attributes: A, rules?: DocumentRules<A>){
         this.attributes = attributes
         if(rules) this.rulesList = rules 
@@ -30,12 +27,24 @@ export class Base_Document<A extends BaseDocumentAttributes> {
     get id(){
         return this.attributes.id 
     }
+    get createdOn(){
+        const value = toDateValue(this.attributes.createdOn)
+        if(value === "now") return new Date() 
+        if(typeof value === "number") return new Date(value) 
+        return value 
+    }
+    get updatedOn(){
+        const value = toDateValue(this.attributes.updatedOn)
+        if(value === "now") return new Date() 
+        if(typeof value === "number") return new Date(value) 
+        return value 
+    }
     updateTimestamps(){
         this.attributes.createdOn = toTimestamp(this.attributes.createdOn) 
-        this.attributes.createdOn = toTimestamp("now")
+        this.attributes.updatedOn = toTimestamp("now")
     }    
     validate(){
-        const keys = Object.keys(this.rules.rules)
+        const keys = Object.keys(this.rules)
         let i = keys.length
         while(i--){
             const key = keys[i] 
@@ -43,20 +52,24 @@ export class Base_Document<A extends BaseDocumentAttributes> {
             if(result) return {[key]: result} 
         }
     }
-    validateAll(){
+    validateAll(message?: string){
         const errors: {[Property in keyof typeof this.rules]: true | string} = {}
         let hasErrors = false 
+        const keys = Object.keys(this.rules)
         Object.keys(this.rules).forEach((name) => {
             const result = this.rules[name](this.attributes) 
-            if(result) {errors[name] = result; hasErrors = true }
+            if(result) {
+                errors[name] = result; 
+                hasErrors = true 
+            }
         })
         if(hasErrors) return errors 
     }
-    render(){
+    render():DocumentData{
         const errors = this.validateAll() 
         if(errors) throw new BaseDocumentError(this.constructor.name, errors)
         this.updateTimestamps()
-        return this.attributes
+        return this.attributes as DocumentData
     }
     
 
